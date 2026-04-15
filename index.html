@@ -516,24 +516,41 @@ function gameLoop(timestamp) {
             ctx.drawImage(images.rateLine, w/2 - rLineW/2, rateLineY - rLineH/2, rLineW, rLineH);
         }
 
-        // Note Rendering Logic 
-        const drawNote = (tArr, xOffset) => {
+        // Effect Keys Animation
+        for(let i=0; i<4; i++) {
+            effectKey[i] += delta * 30; // 0.5 per frame at 60fps
+            if(effectKey[i] >= 5) effectKey[i] = 5;
+        }
+
+        anim2p += delta * 1.8; // 0.03 at 60fps
+        if(anim2p > Math.PI * 2) anim2p -= Math.PI * 2;
+        anim2 = Math.sin(anim2p) / 35;
+        let anim3s = Math.sin(anim2p / 2) / 15;
+
+        // 기어 라인 & 언더 (배경 요소이므로 노트 그리기 전에 배치)
+        if(images.gearLine && anim > 0) ctx.drawImage(images.gearLine, w/2 - ((w/4.4)*anim)/2, 0, (w/4.4)*anim, h);
+        if(images.gearUnder && anim > 0) ctx.drawImage(images.gearUnder, w/2 - ((w/1600)*315*anim)/2, 0, (w/1600)*315*anim, h);
+
+        // --- [수정 1] Note Rendering Logic 을 기어 렌더링 이후로 배치하여 가려짐 해결 ---
+        const drawNote = (tArr, xPos) => {
             for (let i = tArr.length - 1; i >= 0; i--) {
                 let tileData = tArr[i];
                 tileData[0] = rateLineY + (Time + sst - tileData[1]) * 350 * speed * (h/900);
                 
                 let noteImg = images.note;
+                let nWidth = w/20;
+                let nHeight = w/65;
                 
-                // [수정 1] 이미지가 정상적으로 로드된 경우와 대체 렌더링 로직
+                // [수정 2] xPos 중심점 정렬 로직 완벽 매칭 및 Fallback 보완
                 if(noteImg && noteImg.src && noteImg.naturalHeight > 0) {
-                    if(tileData[0] + noteImg.naturalHeight > 0) {
-                        ctx.drawImage(noteImg, w/2 + xOffset, tileData[0] - (w/65)/2, w/20, w/65);
+                    if(tileData[0] + nHeight > 0) {
+                        ctx.drawImage(noteImg, xPos - nWidth/2, tileData[0] - nHeight/2, nWidth, nHeight);
                     }
                 } else {
                     // 이미지가 없는 경우 임시 직사각형을 그려서 눈에 보이게 처리 (fallback)
-                    if(tileData[0] + (w/65) > 0) {
+                    if(tileData[0] + nHeight > 0) {
                         ctx.fillStyle = "rgb(0, 255, 255)"; // 임시 노트 색상 (하늘색)
-                        ctx.fillRect(w/2 + xOffset, tileData[0] - (w/65)/2, w/20, w/65);
+                        ctx.fillRect(xPos - nWidth/2, tileData[0] - nHeight/2, nWidth, nHeight);
                     }
                 }
                 
@@ -551,25 +568,11 @@ function gameLoop(timestamp) {
             }
         };
 
-        drawNote(t1, -w/10);
-        drawNote(t2, -w/20);
-        drawNote(t3, 0);
-        drawNote(t4, w/20);
-
-        // Effect Keys Animation
-        for(let i=0; i<4; i++) {
-            effectKey[i] += delta * 30; // 0.5 per frame at 60fps
-            if(effectKey[i] >= 5) effectKey[i] = 5;
-        }
-
-        anim2p += delta * 1.8; // 0.03 at 60fps
-        if(anim2p > Math.PI * 2) anim2p -= Math.PI * 2;
-        anim2 = Math.sin(anim2p) / 35;
-        let anim3s = Math.sin(anim2p / 2) / 15;
-
-        // 기어 라인 & 언더
-        if(images.gearLine && anim > 0) ctx.drawImage(images.gearLine, w/2 - ((w/4.4)*anim)/2, 0, (w/4.4)*anim, h);
-        if(images.gearUnder && anim > 0) ctx.drawImage(images.gearUnder, w/2 - ((w/1600)*315*anim)/2, 0, (w/1600)*315*anim, h);
+        // [수정 3] 키 기어의 X 좌표와 완전히 동일한 위치(xPos)로 호출 
+        drawNote(t1, w/2 - (w/15.5));
+        drawNote(t2, w/2 - (w/29));
+        drawNote(t3, w/2 + (w/29));
+        drawNote(t4, w/2 + (w/15.5));
 
         // 스코어 텍스트 & 기어 데코 회전 효과
         if((anim3 > 0.3 && anim3 < 0.4) || (anim3 > 0.5 && anim3 < 0.6) || (anim3 > 0.6 && anim3 < 0.7) || (anim3 > 0.8 && anim3 < 0.85) || (anim3 > 0.9 && anim3 < 1.1)) {
@@ -617,8 +620,8 @@ function gameLoop(timestamp) {
 
         drawKey(1, w/2 - (w/29), 1, 48);   // key 2 (f)
         drawKey(2, w/2 + (w/29), 2, 48);   // key 3 (j)
-        drawKey(0, w/2 - (w/15.5), 0, 96); // key 1 (d) - yBase adjusted to match original math: 83/96 approx 44/48
-        drawKey(3, w/2 + (w/15.5), 3, 96); // key 4 (k)
+        drawKey(0, w/2 - (w/15.5), 0, 48); // key 1 (d) - [수정 4] yBase 96 -> 48로 통일
+        drawKey(3, w/2 + (w/15.5), 3, 48); // key 4 (k) - [수정 4] yBase 96 -> 48로 통일
 
         // 타격 이펙트
         let effW = w/15; let effH = w/15;
