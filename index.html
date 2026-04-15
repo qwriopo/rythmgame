@@ -2,21 +2,27 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>Web Rhythm Game</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>qwriopo's Rhythm Game</title>
     <style>
-        body { margin: 0; background-color: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
-        canvas { border: 2px solid #333; box-shadow: 0 0 20px rgba(0, 255, 70, 0.2); }
+        body { margin: 0; background-color: #000; display: flex; justify-content: center; align-items: center; height: 100vh; color: white; font-family: sans-serif; overflow: hidden; }
+        canvas { border: 2px solid #00ff46; box-shadow: 0 0 15px rgba(0, 255, 70, 0.3); background-color: #111; }
+        #overlay { position: absolute; text-align: center; pointer-events: none; }
     </style>
 </head>
 <body>
 
+<div id="overlay">
+    <h2 id="msg">Press SPACE to Start</h2>
+    <p>Keys: D F J K</p>
+</div>
 <canvas id="gameCanvas"></canvas>
 
 <script>
 /**
- * 구성 설정: GitHub 레포지토리 경로에 맞춰 수정하세요.
+ * [설정] 사용자의 GitHub 레포지토리 정보 기반 경로
  */
-const GITHUB_RAW_URL = "https://raw.githubusercontent.com/[사용자명]/[레포이름]/main/";
+const BASE_URL = "https://raw.githubusercontent.com/qwriopo/rythmgame/main/";
 const W = 1200;
 const H = W * (9/16);
 
@@ -25,46 +31,28 @@ const ctx = canvas.getContext('2d');
 canvas.width = W;
 canvas.height = H;
 
-// 게임 상태 변수
-let time = 0;
-let startTime = 0;
+// 상태 변수 (Pygame main.py 로직 계승)
 let isPlaying = false;
+let startTime = 0;
 let score = 0;
 let combo = 0;
 let rate = "READY";
-let bpm = 120; // 기본값 (곡 정보 로드 시 업데이트)
-
-// 판정 데이터
-const judgement = { PERFECT: 0, GREAT: 0, GOOD: 0, BAD: 0, MISS: 0 };
-const keys = { d: false, f: false, j: false, k: false };
 let notes = { 1: [], 2: [], 3: [], 4: [] };
 
-// 리소스 로드 (GitHub 기반)
+// 리소스 로딩 (Pygame os.path.join 구조 반영)
 const assets = {
     bg: new Image(),
     note: new Image(),
-    gear: new Image(),
     audio: new Audio()
 };
 
-// 예시 경로 설정 (업로드하신 Python 코드의 경로 구조 반영)
-assets.bg.src = GITHUB_RAW_URL + "img/bg/pupa.jpg"; 
-assets.note.src = GITHUB_RAW_URL + "img/gear1/NOTE1.png";
-assets.audio.src = GITHUB_RAW_URL + "song/pupa.mp3";
+// GitHub 레파지토리 내 파일 경로 지정
+assets.bg.src = `${BASE_URL}img/bg/pupa.jpg`;
+assets.note.src = `${BASE_URL}img/gear1/NOTE1.png`;
+assets.audio.src = `${BASE_URL}song/pupa.mp3`;
 
 /**
- * 노트 생성 함수 (Python의 sum_note 대응)
- */
-function spawnNote(lane, targetTime) {
-    notes[lane].push({
-        y: 0,
-        targetTime: targetTime, // 판정 기준 시간
-        processed: false
-    });
-}
-
-/**
- * 판정 로직
+ * 노트 판정 로직 (Pygame의 rating(n) 함수 변환)
  */
 function checkRating(lane) {
     const currentTime = (Date.now() - startTime) / 1000;
@@ -74,85 +62,83 @@ function checkRating(lane) {
         const note = laneNotes[0];
         const diff = Math.abs(currentTime - note.targetTime);
         
-        // Python 코드의 abs(Time - rate_data) 로직 구현
-        let currentRate = "";
-        if (diff < 0.05) { currentRate = "PERFECT"; judgement.PERFECT++; combo++; score += 1000; }
-        else if (diff < 0.1) { currentRate = "GREAT"; judgement.GREAT++; combo++; score += 800; }
-        else if (diff < 0.15) { currentRate = "GOOD"; judgement.GOOD++; combo++; score += 500; }
-        else if (diff < 0.2) { currentRate = "BAD"; judgement.BAD++; combo = 0; score += 200; }
+        // Pygame 코드의 판정 시간차 로직 (단위: 초)
+        if (diff < 0.04) { setJudge("PERFECT", 1000); }
+        else if (diff < 0.08) { setJudge("GREAT", 800); }
+        else if (diff < 0.12) { setJudge("GOOD", 500); }
+        else if (diff < 0.16) { setJudge("BAD", 200); }
         
-        if (currentRate !== "") {
-            rate = currentRate;
-            laneNotes.shift(); // 판정된 노트 제거
-        }
+        if (diff < 0.16) laneNotes.shift(); 
     }
 }
 
+function setJudge(grade, points) {
+    rate = grade;
+    score += points;
+    combo++;
+}
+
 /**
- * 메인 업데이트/그리기 루프
+ * 렌더링 루프
  */
 function update() {
     if (!isPlaying) return;
     
     const currentTime = (Date.now() - startTime) / 1000;
     
-    // 배경 및 기어 그리기
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, W, H);
-    ctx.drawImage(assets.bg, 0, 0, W, H);
+    // 1. 배경 (Python: screen.blit(bg_resize, (0, 0)))
+    ctx.clearRect(0, 0, W, H);
+    if (assets.bg.complete) ctx.drawImage(assets.bg, 0, 0, W, H);
     
-    // 기어 영역 (반투명 블랙)
-    ctx.fillStyle = "rgba(30, 30, 30, 0.8)";
+    // 2. 기어 레이아웃 (Python: pygame.draw.rect 기어 영역)
+    ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
     ctx.fillRect(W/2 - 150, 0, 300, H);
     
-    // 판정선 (Python의 rate_line)
-    ctx.strokeStyle = "#00ff46";
-    ctx.lineWidth = 5;
+    // 3. 판정선 (Python: (h / 24) * 17)
     const judgeLineY = (H / 24) * 17;
+    ctx.strokeStyle = "#00ff46";
+    ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(W/2 - 150, judgeLineY);
     ctx.lineTo(W/2 + 150, judgeLineY);
     ctx.stroke();
 
-    // 노트 업데이트 및 그리기
-    const lanes = [1, 2, 3, 4];
+    // 4. 노트 이동 및 그리기 (Python: tile_data[0] 계산 로직)
     const laneX = [W/2 - 112, W/2 - 37, W/2 + 37, W/2 + 112];
-    
-    lanes.forEach((lane, idx) => {
-        for (let i = notes[lane].length - 1; i >= 0; i--) {
-            const note = notes[lane][i];
-            // 속도 계산 (Python의 350 * speed 로직)
-            note.y = judgeLineY + (currentTime - note.targetTime) * 800; 
-            
-            if (note.y < H) {
-                ctx.drawImage(assets.note, laneX[idx] - 30, note.y - 10, 60, 20);
+    [1, 2, 3, 4].forEach((lane, i) => {
+        for (let j = notes[lane].length - 1; j >= 0; j--) {
+            const note = notes[lane][j];
+            // 속도(350 * speed) 반영
+            note.y = judgeLineY + (currentTime - note.targetTime) * 1000; 
+
+            if (assets.note.complete) {
+                ctx.drawImage(assets.note, laneX[i] - 30, note.y - 10, 60, 20);
             }
-            
-            // Miss 판정 (화면 밖으로 나감)
-            if (note.y > H - 50) {
+
+            // MISS 처리 (화면 하단 통과 시)
+            if (note.y > H) {
                 rate = "MISS";
-                judgement.MISS++;
                 combo = 0;
-                notes[lane].splice(i, 1);
+                notes[lane].splice(j, 1);
             }
         }
     });
 
-    // 텍스트 출력 (Score, Combo, Rate)
+    // 5. UI 출력 (Python: combo_text, rate_text)
     ctx.fillStyle = "#00ff46";
-    ctx.font = "bold 30px Arial";
+    ctx.font = "bold 35px Arial";
     ctx.textAlign = "center";
-    ctx.fillText(score.toString().padStart(6, '0'), W/2, 50);
-    ctx.fillText(combo + " COMBO", W/2, H/2 - 50);
+    ctx.fillText(combo > 0 ? combo : "", W/2, H/2);
     
     ctx.fillStyle = "#fff";
-    ctx.font = "italic 40px Arial";
-    ctx.fillText(rate, W/2, judgeLineY + 100);
+    ctx.font = "bold 25px Arial";
+    ctx.fillText(rate, W/2, judgeLineY + 80);
+    ctx.fillText(score.toString().padStart(6, '0'), W/2, 40);
 
     requestAnimationFrame(update);
 }
 
-// 키보드 이벤트 리스너
+// 키 입력 핸들러
 window.addEventListener('keydown', (e) => {
     const key = e.key.toLowerCase();
     if (key === 'd') checkRating(1);
@@ -160,29 +146,21 @@ window.addEventListener('keydown', (e) => {
     if (key === 'j') checkRating(3);
     if (key === 'k') checkRating(4);
     
-    // 게임 시작 (Space)
     if (e.code === 'Space' && !isPlaying) {
+        document.getElementById('overlay').style.display = 'none';
         isPlaying = true;
         startTime = Date.now();
-        assets.audio.play();
-        update();
+        assets.audio.play().catch(e => console.log("Audio play failed:", e));
         
-        // 테스트용 노트 생성 (실제로는 .txt 데이터를 파싱해서 루프로 돌려야 함)
+        // 테스트용 임시 노트 생성기 (나중에 txt 데이터 파싱으로 대체)
         setInterval(() => {
-            const randomLane = Math.floor(Math.random() * 4) + 1;
-            spawnNote(randomLane, (Date.now() - startTime) / 1000 + 2);
-        }, 1000);
+            const l = Math.floor(Math.random() * 4) + 1;
+            notes[l].push({ targetTime: (Date.now() - startTime) / 1000 + 2, y: 0 });
+        }, 800);
+        
+        update();
     }
 });
-
-// 초기 화면 안내
-ctx.fillStyle = "white";
-ctx.font = "30px Arial";
-ctx.textAlign = "center";
-ctx.fillText("Press SPACE to Start", W/2, H/2);
-ctx.font = "20px Arial";
-ctx.fillText("Keys: D F J K", W/2, H/2 + 40);
-
 </script>
 </body>
 </html>
