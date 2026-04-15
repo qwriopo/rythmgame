@@ -3,164 +3,667 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>qwriopo's Rhythm Game</title>
+    <title>Web Rhythm Game</title>
     <style>
-        body { margin: 0; background-color: #000; display: flex; justify-content: center; align-items: center; height: 100vh; color: white; font-family: sans-serif; overflow: hidden; }
-        canvas { border: 2px solid #00ff46; box-shadow: 0 0 15px rgba(0, 255, 70, 0.3); background-color: #111; }
-        #overlay { position: absolute; text-align: center; pointer-events: none; }
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            color: #fff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            font-family: sans-serif;
+        }
+        /* 브라우저 크기에 맞춰 캔버스 비율 유지하며 크기 조정 */
+        canvas {
+            background-color: #000;
+            max-width: 100vw;
+            max-height: 100vh;
+            object-fit: contain;
+        }
     </style>
 </head>
 <body>
 
-<div id="overlay">
-    <h2 id="msg">Press SPACE to Start</h2>
-    <p>Keys: D F J K</p>
-</div>
-<canvas id="gameCanvas"></canvas>
+<canvas id="gameCanvas" width="1200" height="675"></canvas>
 
 <script>
-/**
- * [설정] 사용자의 GitHub 레포지토리 정보 기반 경로
- */
-const BASE_URL = "https://raw.githubusercontent.com/qwriopo/rythmgame/main/";
-const W = 1200;
-const H = W * (9/16);
-
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-canvas.width = W;
-canvas.height = H;
 
-// 상태 변수 (Pygame main.py 로직 계승)
-let isPlaying = false;
-let startTime = 0;
-let score = 0;
-let combo = 0;
+// 기본 설정 값
+const w = 1200;
+const h = 1200 * (9/16); // 675
+
+// 게임 상태 관리
+let main = true;
+let ingame = false;
+let lobby = true;
+let load = false;
+let resultScreen = false;
+let songFinished = false;
+let endTimer = 0;
+
+let judgementCount = { "PERFECT": 0, "GREAT": 0, "GOOD": 0, "BAD": 0, "MISS": 0 };
+
+let keys = [0, 0, 0, 0];
+let keyset = [0, 0, 0, 0];
+let keyPressAnim = [0, 0, 0, 0];
+
+let maxframe = 60;
+let fps = 60;
+
+let gst = 0;
+let Time = 0;
+let tst = 0;
+
+let t1 = [], t2 = [], t3 = [], t4 = [];
+
+let gearNum = 1;
 let rate = "READY";
-let notes = { 1: [], 2: [], 3: [], 4: [] };
+let speed = 2.8;
 
-// 리소스 로딩 (Pygame os.path.join 구조 반영)
-const assets = {
-    bg: new Image(),
-    note: new Image(),
-    audio: new Audio()
-};
+let combo = 0, lastCombo = 0;
+let comboEffect = 0, comboEffect2 = 0;
+let missAnim = 0;
+let comboTime = 0;
 
-// GitHub 레파지토리 내 파일 경로 지정
-assets.bg.src = `${BASE_URL}img/bg/pupa.jpg`;
-assets.note.src = `${BASE_URL}img/gear1/NOTE1.png`;
-assets.audio.src = `${BASE_URL}song/pupa.mp3`;
+let rateData = [0, 0, 0, 0];
+let effectKey = [5, 5, 5, 5]; // 5 means inactive
+let effectKeySize = [13, 13, 13, 13];
 
-/**
- * 노트 판정 로직 (Pygame의 rating(n) 함수 변환)
- */
-function checkRating(lane) {
-    const currentTime = (Date.now() - startTime) / 1000;
-    const laneNotes = notes[lane];
+let score = 0;
+let fever = 1;
+let feverGauge = 0;
+let feverGaugeSmooth = 0;
+let feverAnim = 0;
+let feverAnim2 = 0;
+let feverAnimCool = 0;
+
+let anim = 0, anim2 = 0, anim2p = 0, anim3 = 0;
+
+let songData = [
+    ["pupa", 911, 202],
+    ["light it up", 911, 202],
+    ["nacreous snowmelt", 911, 202],
+    ["Freedom Dive", 911, 202]
+];
+let songNum = 0;
+let songName = songData[songNum][0];
+
+// 이미지 및 오디오 객체
+let images = {};
+let audios = {};
+let currentSong = null;
+
+let linec = 0;
+let ms = 5;
+
+let speedList = [];
+let dataList = [];
+let noteStartTime = 0, songStartTime = 0, bpm = 0;
+let notess = 0, speedss = 0, sst = 0;
+let noteCount = 0;
+let songPlay = 0;
+
+let lobbySelectAnim = 0;
+let songNumAnim = 0;
+
+// 판정 함수
+function rating(n) {
+    let beatTiming = 240 / bpm;
+    let diff = Math.abs(Time - rateData[n - 1]);
     
-    if (laneNotes.length > 0) {
-        const note = laneNotes[0];
-        const diff = Math.abs(currentTime - note.targetTime);
-        
-        // Pygame 코드의 판정 시간차 로직 (단위: 초)
-        if (diff < 0.04) { setJudge("PERFECT", 1000); }
-        else if (diff < 0.08) { setJudge("GREAT", 800); }
-        else if (diff < 0.12) { setJudge("GOOD", 500); }
-        else if (diff < 0.16) { setJudge("BAD", 200); }
-        
-        if (diff < 0.16) laneNotes.shift(); 
+    // MISS 처리 (노트가 화면 밖으로 나갔을 때는 루프에서 별도 처리)
+    if (diff < beatTiming / 5 && diff >= beatTiming / 8) {
+        judgementCount["MISS"]++;
+        lastCombo = combo;
+        missAnim = 1;
+        combo = 0;
+        comboEffect = 0.2;
+        comboTime = Time + 1;
+        comboEffect2 = 1.3;
+        rate = "MISS";
+        score += (100000 / noteCount) * 0.2;
+    } else if (diff < beatTiming / 8 && diff >= beatTiming / 12) {
+        judgementCount["BAD"]++;
+        lastCombo = combo;
+        missAnim = 1;
+        combo = 0;
+        comboEffect = 0.2;
+        comboTime = Time + 1;
+        comboEffect2 = 1.3;
+        rate = "BAD";
+        score += (100000 / noteCount) * 0.4;
+    } else if (diff < beatTiming / 12 && diff >= beatTiming / 24) {
+        judgementCount["GOOD"]++;
+        comboEffect = 0.2;
+        comboTime = Time + 1;
+        comboEffect2 = 1.3;
+        rate = "GOOD";
+        combo += 1 * fever;
+        effectKey[n - 1] = 0;
+        score += (100000 / noteCount) * 0.7;
+        feverGauge += 1;
+    } else if (diff < beatTiming / 24 && diff >= Math.min(beatTiming / 32, 0)) { // 원본 로직 유지
+        judgementCount["GREAT"]++;
+        comboEffect = 0.2;
+        comboTime = Time + 1;
+        comboEffect2 = 1.3;
+        rate = "GREAT";
+        combo += 1 * fever;
+        effectKey[n - 1] = 0;
+        score += (100000 / noteCount) * 0.9;
+        feverGauge += 1;
+    } else if (diff < beatTiming / 32) {
+        judgementCount["PERFECT"]++;
+        comboEffect = 0.2;
+        comboTime = Time + 1;
+        comboEffect2 = 1.3;
+        rate = "PERFECT";
+        combo += 1 * fever;
+        effectKey[n - 1] = 0;
+        score += (100000 / noteCount) * 1;
+        feverGauge += 1;
     }
 }
 
-function setJudge(grade, points) {
-    rate = grade;
-    score += points;
-    combo++;
+function sumNote(n, t) {
+    let tst_val = t + 2 + (ms / 1000);
+    if (n === 1) t1.push([0, tst_val]);
+    if (n === 2) t2.push([0, tst_val]);
+    if (n === 3) t3.push([0, tst_val]);
+    if (n === 4) t4.push([0, tst_val]);
 }
 
-/**
- * 렌더링 루프
- */
-function update() {
-    if (!isPlaying) return;
-    
-    const currentTime = (Date.now() - startTime) / 1000;
-    
-    // 1. 배경 (Python: screen.blit(bg_resize, (0, 0)))
-    ctx.clearRect(0, 0, W, H);
-    if (assets.bg.complete) ctx.drawImage(assets.bg, 0, 0, W, H);
-    
-    // 2. 기어 레이아웃 (Python: pygame.draw.rect 기어 영역)
-    ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-    ctx.fillRect(W/2 - 150, 0, 300, H);
-    
-    // 3. 판정선 (Python: (h / 24) * 17)
-    const judgeLineY = (H / 24) * 17;
-    ctx.strokeStyle = "#00ff46";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(W/2 - 150, judgeLineY);
-    ctx.lineTo(W/2 + 150, judgeLineY);
-    ctx.stroke();
+// 에셋 로딩 (비동기)
+async function preloadAssets() {
+    ctx.fillStyle = "#fff";
+    ctx.font = "30px sans-serif";
+    ctx.fillText("Loading Assets...", w/2 - 100, h/2);
 
-    // 4. 노트 이동 및 그리기 (Python: tile_data[0] 계산 로직)
-    const laneX = [W/2 - 112, W/2 - 37, W/2 + 37, W/2 + 112];
-    [1, 2, 3, 4].forEach((lane, i) => {
-        for (let j = notes[lane].length - 1; j >= 0; j--) {
-            const note = notes[lane][j];
-            // 속도(350 * speed) 반영
-            note.y = judgeLineY + (currentTime - note.targetTime) * 1000; 
+    const loadImage = (src) => {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.src = src;
+            img.onload = () => resolve(img);
+            img.onerror = () => resolve(null); // 에러 무시하고 빈 이미지로 처리
+        });
+    };
 
-            if (assets.note.complete) {
-                ctx.drawImage(assets.note, laneX[i] - 30, note.y - 10, 60, 20);
-            }
+    // 공통 기어 이미지 로드
+    images.note = await loadImage(`img/gear${gearNum}/NOTE1.png`);
+    images.feverBg = await loadImage(`img/gear${gearNum}/BG.png`);
+    images.gearLine = await loadImage(`img/gear${gearNum}/GEAR1.png`);
+    images.gearUnder = await loadImage(`img/gear${gearNum}/GEAR2.png`);
+    images.gearDeco = await loadImage(`img/gear${gearNum}/GEAR3.png`);
+    images.rateLine = await loadImage(`img/gear${gearNum}/RATE_LINE.png`);
+    images.pKey = await loadImage(`img/gear${gearNum}/KEY.png`);
+    images.feverR = await loadImage(`img/gear${gearNum}/fever_R_1.png`);
+    images.feverL = await loadImage(`img/gear${gearNum}/fever_L_1.png`);
+    
+    images.keys = [];
+    images.keys.push(images.pKey);
+    for(let i=1; i<=11; i++) {
+        images.keys.push(await loadImage(`img/gear${gearNum}/key_anim${i}.png`));
+    }
+    
+    images.effects = [];
+    for(let i=1; i<=5; i++) {
+        images.effects.push(await loadImage(`img/gear${gearNum}/effect${i}.png`));
+    }
 
-            // MISS 처리 (화면 하단 통과 시)
-            if (note.y > H) {
-                rate = "MISS";
-                combo = 0;
-                notes[lane].splice(j, 1);
+    // 노래 배경화면 로드
+    images.bgs = [];
+    for (let i = 0; i < songData.length; i++) {
+        images.bgs.push(await loadImage(`img/bg/${songData[i][0]}.jpg`));
+        // 오디오 객체 미리 생성
+        let audio = new Audio(`song/${songData[i][0]}.mp3`);
+        audio.volume = 0.3;
+        audios[songData[i][0]] = audio;
+    }
+
+    requestAnimationFrame(gameLoop);
+}
+
+// 텍스트 채보 파일 파싱 (비동기)
+async function loadChartData(songName) {
+    try {
+        const response = await fetch(`note/${songName}.txt`);
+        const text = await response.text();
+        const lines = text.split('\n');
+        
+        t1 = []; t2 = []; t3 = []; t4 = [];
+        dataList = []; speedList = [];
+        noteCount = 0;
+        
+        // Pygame 버전의 txt 파싱 논리 구현
+        if(lines.length >= 3) {
+            noteStartTime = parseFloat(lines[0].substring(11, 17));
+            songStartTime = parseFloat(lines[1].substring(11, 17));
+            bpm = parseFloat(lines[2].substring(11, 17));
+            
+            notess = noteStartTime;
+            speedss = noteStartTime + 2;
+
+            for(let i = 3; i < lines.length; i++) {
+                let line = lines[i];
+                if(line.length < 16) continue;
+                
+                let keysStr = line.substring(0, 4);
+                let beatDiv = parseFloat(line.substring(5, 8));
+                let bpmChange = parseFloat(line.substring(9, 12));
+                let speedChange = parseFloat(line.substring(13, 16));
+
+                if(bpmChange !== 0) bpm = bpmChange;
+                
+                if (keysStr.includes("1")) { sumNote(1, notess); noteCount++; }
+                if (keysStr.includes("2")) { sumNote(2, notess); noteCount++; }
+                if (keysStr.includes("3")) { sumNote(3, notess); noteCount++; }
+                if (keysStr.includes("4")) { sumNote(4, notess); noteCount++; }
+
+                let perfectBpms = [60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900, 960, 1020, 1080];
+                let notesAdd = 240 / bpm / beatDiv;
+                if (perfectBpms.includes(bpm)) {
+                    notesAdd = notesAdd - (notesAdd / 98 * (12 / beatDiv));
+                }
+                notess += notesAdd;
+                speedList.push([beatDiv, speedChange]);
             }
         }
-    });
+        
+        load = false;
+        ingame = true;
+        gst = performance.now() / 1000;
+        comboTime = Time + 1 + (noteStartTime - 1);
+        songPlay = 0;
+        sst = 0;
 
-    // 5. UI 출력 (Python: combo_text, rate_text)
-    ctx.fillStyle = "#00ff46";
-    ctx.font = "bold 35px Arial";
-    ctx.textAlign = "center";
-    ctx.fillText(combo > 0 ? combo : "", W/2, H/2);
-    
-    ctx.fillStyle = "#fff";
-    ctx.font = "bold 25px Arial";
-    ctx.fillText(rate, W/2, judgeLineY + 80);
-    ctx.fillText(score.toString().padStart(6, '0'), W/2, 40);
-
-    requestAnimationFrame(update);
+    } catch (e) {
+        console.error("채보 파일 로드 실패:", e);
+        lobby = true; // 에러시 로비로 복귀
+    }
 }
 
-// 키 입력 핸들러
-window.addEventListener('keydown', (e) => {
-    const key = e.key.toLowerCase();
-    if (key === 'd') checkRating(1);
-    if (key === 'f') checkRating(2);
-    if (key === 'j') checkRating(3);
-    if (key === 'k') checkRating(4);
+// 키 입력 이벤트
+document.addEventListener('keydown', (e) => {
+    if(!main) return;
     
-    if (e.code === 'Space' && !isPlaying) {
-        document.getElementById('overlay').style.display = 'none';
-        isPlaying = true;
-        startTime = Date.now();
-        assets.audio.play().catch(e => console.log("Audio play failed:", e));
-        
-        // 테스트용 임시 노트 생성기 (나중에 txt 데이터 파싱으로 대체)
-        setInterval(() => {
-            const l = Math.floor(Math.random() * 4) + 1;
-            notes[l].push({ targetTime: (Date.now() - startTime) / 1000 + 2, y: 0 });
-        }, 800);
-        
-        update();
+    if(lobby) {
+        if(e.key === 'ArrowDown') {
+            songNum++;
+            if(songNum > songData.length - 1) songNum = songData.length - 1;
+            lobbySelectAnim = -25;
+        }
+        if(e.key === 'ArrowUp') {
+            songNum--;
+            if(songNum < 0) songNum = 0;
+            lobbySelectAnim = -25;
+        }
+        if(e.key === ' ' || e.key === 'Spacebar') {
+            lobby = false;
+            load = true;
+            songName = songData[songNum][0];
+            currentSong = audios[songName];
+            loadChartData(songName);
+        }
+    } else if(ingame) {
+        if(e.key === 'd' || e.key === 'D') {
+            keyset[0] = 1;
+            if(t1.length > 0 && Math.abs(Time - rateData[0]) < 240 / bpm / 5) { rating(1); t1.shift(); }
+        }
+        if(e.key === 'f' || e.key === 'F') {
+            keyset[1] = 1;
+            if(t2.length > 0 && Math.abs(Time - rateData[1]) < 240 / bpm / 5) { rating(2); t2.shift(); }
+        }
+        if(e.key === 'j' || e.key === 'J') {
+            keyset[2] = 1;
+            if(t3.length > 0 && Math.abs(Time - rateData[2]) < 240 / bpm / 5) { rating(3); t3.shift(); }
+        }
+        if(e.key === 'k' || e.key === 'K') {
+            keyset[3] = 1;
+            if(t4.length > 0 && Math.abs(Time - rateData[3]) < 240 / bpm / 5) { rating(4); t4.shift(); }
+        }
+    } else if(resultScreen) {
+        if(e.key === 'Escape') {
+            resultScreen = false;
+            lobby = true;
+        }
     }
 });
+
+document.addEventListener('keyup', (e) => {
+    if(e.key === 'd' || e.key === 'D') { keyset[0] = 0; keyPressAnim[0] = 0; }
+    if(e.key === 'f' || e.key === 'F') { keyset[1] = 0; keyPressAnim[1] = 0; }
+    if(e.key === 'j' || e.key === 'J') { keyset[2] = 0; keyPressAnim[2] = 0; }
+    if(e.key === 'k' || e.key === 'K') { keyset[3] = 0; keyPressAnim[3] = 0; }
+});
+
+// 텍스트 렌더링 도우미
+function drawText(text, x, y, size, color, align="center") {
+    ctx.fillStyle = color;
+    ctx.font = `${size}px sans-serif`;
+    ctx.textAlign = align;
+    ctx.fillText(text, x, y);
+}
+
+let lastTimeMs = performance.now();
+
+// 메인 게임 루프
+function gameLoop(timestamp) {
+    if(!main) return;
+    
+    // FPS 기반 델타 계산
+    let delta = (timestamp - lastTimeMs) / 1000;
+    lastTimeMs = timestamp;
+    if(delta > 0.1) delta = 0.1; // 탭 전환 시 폭주 방지
+
+    ctx.clearRect(0, 0, w, h);
+
+    if (resultScreen) {
+        ctx.fillStyle = "black";
+        ctx.fillRect(0, 0, w, h);
+        
+        drawText("RESULT", w / 2, h / 8, w / 20, "white");
+        drawText(`Score: ${Math.round(score)}`, w / 2, h / 4, w / 20, "rgb(0, 255, 70)");
+        
+        let yOffset = h / 2.5;
+        let spacing = 40;
+        
+        drawText(`PERFECT: ${judgementCount['PERFECT']}`, w / 2, yOffset, w / 50, "rgb(255, 255, 0)");
+        drawText(`GREAT: ${judgementCount['GREAT']}`, w / 2, yOffset + spacing, w / 50, "rgb(0, 255, 0)");
+        drawText(`GOOD: ${judgementCount['GOOD']}`, w / 2, yOffset + spacing * 2, w / 50, "rgb(0, 200, 255)");
+        drawText(`BAD: ${judgementCount['BAD']}`, w / 2, yOffset + spacing * 3, w / 50, "rgb(255, 100, 100)");
+        drawText(`MISS: ${judgementCount['MISS']}`, w / 2, yOffset + spacing * 4, w / 50, "rgb(255, 0, 0)");
+        
+        drawText("Press ESC to Return", w / 2, h - 50, 20, "gray");
+        
+    } else if (lobby) {
+        let bgImg = images.bgs[songNum];
+        if(bgImg) {
+            // 원본 파이썬의 PIL Blur 효과를 캔버스 필터로 재현
+            ctx.filter = 'blur(4px) brightness(1.3)';
+            ctx.drawImage(bgImg, 0, 0, w, h);
+            ctx.filter = 'none';
+            
+            // 어두운 레이어
+            ctx.fillStyle = "rgba(0,0,0,0.66)"; // alpha 170/255
+            ctx.fillRect(0, 0, w, h);
+            
+            let bgW = w / 2.3;
+            let bgH = h / 2.3;
+            ctx.drawImage(bgImg, w/4 - bgW/2 + (lobbySelectAnim * (h/900)), h/4 - bgH/2, bgW, bgH);
+        }
+
+        for (let i = 0; i < songData.length; i++) {
+            let yPos = h/4 + (h/12)*i - ((h/12)*songNumAnim);
+            
+            // 선택된 항목 배경 라인
+            ctx.fillStyle = "rgba(0,0,0,0.49)";
+            ctx.fillRect(w/2 + w/17, yPos - (h/40), w, h/20);
+            
+            let color = (songNum === i) ? "white" : "rgb(120,120,120)";
+            ctx.fillStyle = color;
+            ctx.font = `${Math.floor(w/70)}px sans-serif`;
+            ctx.textAlign = "left";
+            ctx.fillText(songData[i][0], w/2 + w/15, yPos + 5); // 5 is offset for vertical align
+        }
+
+        lobbySelectAnim += (0 - lobbySelectAnim) * (delta * 5);
+        songNumAnim += (songNum - songNumAnim) * (delta * 8.5);
+
+    } else if (load) {
+        ctx.fillStyle = "black";
+        ctx.fillRect(0, 0, w, h);
+        drawText("Loading Chart...", w/2, h/2, 30, "white");
+        
+    } else if (ingame) {
+        Time = performance.now() / 1000 - gst;
+
+        // 노래 종료 로직
+        if(t1.length === 0 && t2.length === 0 && t3.length === 0 && t4.length === 0 && !songFinished) {
+            if(currentSong) currentSong.pause();
+            songFinished = true;
+            endTimer = Time;
+        }
+
+        if(songFinished && Time - endTimer >= 3) {
+            ingame = false;
+            resultScreen = true;
+        }
+
+        // 노래 시작
+        if(songPlay === 0 && songStartTime < Time) {
+            if(currentSong) {
+                currentSong.currentTime = 0;
+                currentSong.play();
+            }
+            sst = Time - songStartTime;
+            songPlay = 1;
+        }
+
+        if(t1.length > 0) rateData[0] = t1[0][1];
+        if(t2.length > 0) rateData[1] = t2[0][1];
+        if(t3.length > 0) rateData[2] = t3[0][1];
+        if(t4.length > 0) rateData[3] = t4[0][1];
+
+        // 변속 처리 (View Only)
+        if(Time > speedss && speedList.length > 0) {
+            if(speedList[0][1] !== 0) speed = speedList[0][1]; // 원본은 speed_set 이었으나 즉시반영으로 치환
+            let speeds = (60 / bpm) / (speedList[0][0] / 4);
+            speedss += speeds;
+            speedList.shift();
+        }
+
+        // 배경 렌더링
+        let bgImg = images.bgs[songNum];
+        if(bgImg) ctx.drawImage(bgImg, 0, 0, w, h);
+        ctx.fillStyle = "rgba(0,0,0,0.66)";
+        ctx.fillRect(0, 0, w, h);
+
+        // 스무딩 애니메이션 변수 연산
+        let dRate = delta * 20; // 프레임 보정 계수
+        for(let i=0; i<4; i++) {
+            keys[i] += (keyset[i] - keys[i]) * Math.min(dRate * 0.5, 1);
+            if(keyset[i] === 1) {
+                keyPressAnim[i] += (11.9 - keyPressAnim[i]) * Math.min(dRate * 0.58, 1);
+            }
+        }
+
+        if (t1.length + t2.length + t3.length + t4.length > 0) {
+            anim += (1 - anim) * Math.min(dRate * 0.28, 1);
+            if(Time > comboTime) comboEffect += (0 - comboEffect) * Math.min(dRate * 0.11, 1);
+            if(Time < comboTime) comboEffect += (1 - comboEffect) * Math.min(dRate * 0.11, 1);
+            let end_time = Time; // 원본 구조
+            comboEffect2 += (2 - comboEffect2) * Math.min(dRate * 0.11, 1);
+        } else {
+            anim += (0 - anim) * Math.min(dRate * 0.28, 1);
+            comboEffect += (0 - comboEffect) * Math.min(dRate * 0.11, 1);
+            comboEffect2 += (0 - comboEffect2) * Math.min(dRate * 0.11, 1);
+        }
+        
+        if(anim > 0.97) anim3 += (1 - anim3) * Math.min(dRate * 0.28, 1);
+        else anim3 += (0 - anim3) * Math.min(dRate * 0.28, 1);
+        missAnim += (4 - missAnim) * Math.min(dRate * 0.23, 1);
+
+        // Fever Deco R/L
+        if(images.feverR && images.feverL) {
+            let feverRW = w / 25;
+            let feverRH = (w / 3) * feverAnim;
+            ctx.drawImage(images.feverR, w/2 + (w/7)*feverAnim - feverRW/2, h/2 - feverRH/2, feverRW, feverRH);
+            ctx.drawImage(images.feverL, w/2 - (w/7)*feverAnim - feverRW/2, h/2 - feverRH/2, feverRW, feverRH);
+        }
+
+        // 배경 검정 기둥 & 피버 색상 기둥
+        ctx.fillStyle = "rgb(30, 30, 30)";
+        ctx.fillRect(w/2 - (w/8.8)*anim, 0, (w/4.4)*anim, h);
+        
+        ctx.fillStyle = "rgb(0, 50, 0)";
+        ctx.fillRect(w/2 - (w/8.8)*feverAnim*anim, 0, (w/4.4)*feverAnim*anim, h*feverAnim);
+
+        if(images.feverBg && anim > 0) {
+            ctx.drawImage(images.feverBg, w/2 - ((w/4.4)*anim)/2, 0, (w/4.4)*anim, h);
+        }
+
+        // Rate Line (판정선)
+        let rateLineY = (h/24)*17;
+        if(images.rateLine && anim > 0) {
+            let rLineW = (w/4.4)*anim;
+            let rLineH = w/30;
+            ctx.drawImage(images.rateLine, w/2 - rLineW/2, rateLineY - rLineH/2, rLineW, rLineH);
+        }
+
+        // Note Rendering Logic 
+        const drawNote = (tArr, xOffset) => {
+            for (let i = tArr.length - 1; i >= 0; i--) {
+                let tileData = tArr[i];
+                tileData[0] = rateLineY + (Time + sst - tileData[1]) * 350 * speed * (h/900);
+                
+                let noteImg = images.note;
+                if(noteImg && tileData[0] + noteImg.naturalHeight > 0) {
+                    ctx.drawImage(noteImg, w/2 + xOffset, tileData[0] - (w/65)/2, w/20, w/65);
+                }
+                
+                if(tileData[0] > h - (h/9)) {
+                    lastCombo = combo;
+                    missAnim = 1;
+                    combo = 0;
+                    comboEffect = 0.2;
+                    comboTime = Time + 1;
+                    comboEffect2 = 1.3;
+                    rate = "MISS";
+                    judgementCount["MISS"]++;
+                    tArr.splice(i, 1);
+                }
+            }
+        };
+
+        drawNote(t1, -w/10);
+        drawNote(t2, -w/20);
+        drawNote(t3, 0);
+        drawNote(t4, w/20);
+
+        // Effect Keys Animation
+        for(let i=0; i<4; i++) {
+            effectKey[i] += delta * 30; // 0.5 per frame at 60fps
+            if(effectKey[i] >= 5) effectKey[i] = 5;
+        }
+
+        anim2p += delta * 1.8; // 0.03 at 60fps
+        if(anim2p > Math.PI * 2) anim2p -= Math.PI * 2;
+        anim2 = Math.sin(anim2p) / 35;
+        let anim3s = Math.sin(anim2p / 2) / 15;
+
+        // 기어 라인 & 언더
+        if(images.gearLine && anim > 0) ctx.drawImage(images.gearLine, w/2 - ((w/4.4)*anim)/2, 0, (w/4.4)*anim, h);
+        if(images.gearUnder && anim > 0) ctx.drawImage(images.gearUnder, w/2 - ((w/1600)*315*anim)/2, 0, (w/1600)*315*anim, h);
+
+        // 스코어 텍스트 & 기어 데코 회전 효과
+        if((anim3 > 0.3 && anim3 < 0.4) || (anim3 > 0.5 && anim3 < 0.6) || (anim3 > 0.6 && anim3 < 0.7) || (anim3 > 0.8 && anim3 < 0.85) || (anim3 > 0.9 && anim3 < 1.1)) {
+            ctx.save();
+            ctx.translate(w/2, (h/48)*38 + (h/400)*(anim2*100));
+            ctx.rotate(anim3s * 50 * Math.PI / 180);
+            if(images.gearDeco && anim3 > 0) {
+                let gdW = (w/9)*anim3;
+                let gdH = w/18;
+                ctx.drawImage(images.gearDeco, -gdW/2, -gdH/2, gdW, gdH);
+            }
+            ctx.restore();
+
+            ctx.save();
+            ctx.translate(w/2, (h/96)*75.5 + (h/200)*(anim2*100));
+            ctx.rotate(anim3s * 50 * Math.PI / 180);
+            drawText(Math.round(score).toString(), 0, 0, w/130, "rgb(0, 255, 70)");
+            ctx.restore();
+        }
+
+        feverAnim += (feverAnim2 - feverAnim) * Math.min(dRate * 0.36, 1);
+
+        if(feverAnim2 !== 0 && Math.floor((w/100) - (w/100)*feverAnim) !== 0) {
+            ctx.strokeStyle = "rgb(0, 255, 70)";
+            ctx.lineWidth = Math.max(1, (w/100) - (w/100)*feverAnim);
+            ctx.beginPath();
+            ctx.arc(w/2, h/2, (w/2)*feverAnim, 0, Math.PI*2);
+            ctx.stroke();
+            
+            ctx.beginPath();
+            ctx.arc(w/2, h/2, w*feverAnim, 0, Math.PI*2);
+            ctx.stroke();
+        }
+
+        // 키 이미지 렌더링
+        let pKeyW = w/18; let pKeyH = w/18.2;
+        
+        const drawKey = (idx, xPos, keyArrIdx, yBase) => {
+            let keyImg = images.keys[Math.floor(keyPressAnim[keyArrIdx])] || images.pKey;
+            if(keyImg) {
+                let yPos = (h/yBase)*(44*(2-anim)) + (h/48)*(keys[keyArrIdx]/2) - pKeyH/2;
+                ctx.drawImage(keyImg, xPos - pKeyW/2, yPos, pKeyW, pKeyH);
+            }
+        };
+
+        drawKey(1, w/2 - (w/29), 1, 48);   // key 2 (f)
+        drawKey(2, w/2 + (w/29), 2, 48);   // key 3 (j)
+        drawKey(0, w/2 - (w/15.5), 0, 96); // key 1 (d) - yBase adjusted to match original math: 83/96 approx 44/48
+        drawKey(3, w/2 + (w/15.5), 3, 96); // key 4 (k)
+
+        // 타격 이펙트
+        let effW = w/15; let effH = w/15;
+        const drawEffect = (idx, xPos) => {
+            if(effectKey[idx] < 5 && images.effects[Math.floor(effectKey[idx])]) {
+                ctx.drawImage(images.effects[Math.floor(effectKey[idx])], xPos - effW/2, rateLineY - effH/2, effW, effH);
+            }
+        };
+        
+        drawEffect(1, w/2 - (w/33));
+        drawEffect(2, w/2 + (w/33));
+        drawEffect(0, w/2 - (w/33)*2.5);
+        drawEffect(3, w/2 + (w/33)*2.5);
+
+        // 피버 게이지 발동 조건
+        if(feverGauge >= 128) {
+            fever = Math.min(fever + 1, 5);
+            feverGauge = 0;
+            feverAnimCool = Time;
+            feverAnim2 = 1;
+        }
+        if(Time - feverAnimCool > 2) feverAnim2 = 0;
+        
+        feverGaugeSmooth += (feverGauge - feverGaugeSmooth) * Math.min(dRate * 0.28, 1);
+
+        // 피버 바 UI
+        ctx.fillStyle = "rgb(0, 255, 70)";
+        ctx.fillRect(w/2 - (w/30), h/3.4, (w/15)*(feverGaugeSmooth/128)*anim, h/300);
+        ctx.fillRect(w/2 - (w/29)*anim, h/3.4, (w/800)*anim, h/300);
+        ctx.fillRect(w/2 + (w/29) - (w/800)*anim, h/3.4, (w/800)*anim, h/300);
+
+        // 중앙 UI 텍스트 (콤보, 판정 등)
+        drawText(combo.toString(), w/2, (h/48)*16, (w/80)*Math.max(comboEffect2, 0.1), "rgb(0, 255, 70)");
+        drawText(`x${fever}`, w/2, (h/48)*18, (w/240)*Math.max(comboEffect2, 0.1), "rgb(0, 255, 70)");
+        
+        // Rate Text (PERFECT, GREAT 등) - 원본의 스케일 로직 모방
+        ctx.save();
+        ctx.translate(w/2, (h/48)*30);
+        ctx.scale(Math.max(comboEffect2, 0.1), Math.max(comboEffect * comboEffect2, 0.1));
+        drawText(rate, 0, 0, w/35, "white"); // 크기 비율 임의 보정
+        ctx.restore();
+
+        // Miss Anim Text
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, 1 - missAnim/4);
+        drawText(lastCombo.toString(), w/2, (h/48)*16, (w/80)*Math.max(missAnim, 0.1), "rgb(255, 0, 0)");
+        ctx.restore();
+    }
+
+    requestAnimationFrame(gameLoop);
+}
+
+// 게임 시작: 에셋 프리로드부터 진입
+window.onload = preloadAssets;
+
 </script>
 </body>
 </html>
