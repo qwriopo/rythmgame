@@ -523,8 +523,18 @@ function gameLoop(timestamp) {
                 tileData[0] = rateLineY + (Time + sst - tileData[1]) * 350 * speed * (h/900);
                 
                 let noteImg = images.note;
-                if(noteImg && tileData[0] + noteImg.naturalHeight > 0) {
-                    ctx.drawImage(noteImg, w/2 + xOffset, tileData[0] - (w/65)/2, w/20, w/65);
+                
+                // [수정 1] 이미지가 정상적으로 로드된 경우와 대체 렌더링 로직
+                if(noteImg && noteImg.src && noteImg.naturalHeight > 0) {
+                    if(tileData[0] + noteImg.naturalHeight > 0) {
+                        ctx.drawImage(noteImg, w/2 + xOffset, tileData[0] - (w/65)/2, w/20, w/65);
+                    }
+                } else {
+                    // 이미지가 없는 경우 임시 직사각형을 그려서 눈에 보이게 처리 (fallback)
+                    if(tileData[0] + (w/65) > 0) {
+                        ctx.fillStyle = "rgb(0, 255, 255)"; // 임시 노트 색상 (하늘색)
+                        ctx.fillRect(w/2 + xOffset, tileData[0] - (w/65)/2, w/20, w/65);
+                    }
                 }
                 
                 if(tileData[0] > h - (h/9)) {
