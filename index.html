@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>리듬게임</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+canvas { display: block; }
+#loading {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: #000; display: flex; flex-direction: column;
+  justify-content: center; align-items: center; z-index: 100;
+  color: #fff; font-family: sans-serif;
+}
+#loading-bar-bg {
+  width: 300px; height: 8px; background: #333; border-radius: 4px; margin-top: 20px;
+}
+#loading-bar {
+  height: 100%; background: #00ff46; border-radius: 4px; width: 0%;
+  transition: width 0.1s;
+}
+#loading-text { margin-top: 12px; color: #aaa; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div style="font-size:24px;">Loading...</div>
+  <div id="loading-bar-bg"><div id="loading-bar"></div></div>
+  <div id="loading-text">이미지 로딩 중...</div>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+const W = 1200;
+const H = W * (9/16);
+canvas.width = W;
+canvas.height = H;
+
+function scaleCanvas() {
+  const scaleX = window.innerWidth / W;
+  const scaleY = window.innerHeight / H;
+  const scale = Math.min(scaleX, scaleY);
+  canvas.style.width = (W * scale) + 'px';
+  canvas.style.height = (H * scale) + 'px';
+}
+scaleCanvas();
+window.addEventListener('resize', scaleCanvas);
+
+const SONGS = [
+  { name: 'pupa',              bpmBase: 202 },
+  { name: 'light it up',       bpmBase: 175 },
+  { name: 'nacreous snowmelt', bpmBase: 202 },
+  { name: 'Freedom Dive',      bpmBase: 202 },
+];
+
+const PERFECT_BPMS = [60,120,180,240,300,360,420,480,540,600,660,720,780,840,900,960,1020,1080];
+
+let assets = {
+  images: {},
+  fonts: {},
+  songs: {},
+  notes: {},
+};
+
+let loadedCount = 0;
+let totalAssets = 0;
+
+function updateLoading(msg) {
+  document.getElementById('loading-text').textContent = msg;
+}
+function updateBar(pct) {
+  document.getElementById('loading-bar').style.width = pct + '%';
+}
+
+function loadImage(key, src) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => { assets.images[key] = img; loadedCount++; updateBar(loadedCount/totalAssets*100); resolve(); };
+    img.onerror = () => { console.warn('img fail:', src); loadedCount++; updateBar(loadedCount/totalAssets*100); resolve(); };
+    img.src = src;
+  });
+}
+
+function loadAudio(key, src) {
+  return new Promise(resolve => {
+    const audio = new Audio();
+    audio.oncanplaythrough = () => { assets.songs[key] = audio; loadedCount++; updateBar(loadedCount/totalAssets*100); resolve(); };
+    audio.onerror = () => { console.warn('audio fail:', src); loadedCount++; updateBar(loadedCount/totalAssets*100); resolve(); };
+    audio.src = src;
+    audio.load();
+  });
+}
+
+function loadFont(name, src) {
+  return new Promise(resolve => {
+    const ff = new FontFace(name, 'url(' + src + ')');
+    ff.load().then(f => {
+      document.fonts.add(f);
+      assets.fonts[name] = name;
+      loadedCount++; updateBar(loadedCount/totalAssets*100);
+      resolve();
+    }).catch(() => { loadedCount++; updateBar(loadedCount/totalAssets*100); resolve(); });
+  });
+}
+
+function loadNote(key, src) {
+  return new Promise(resolve => {
+    fetch(src).then(r => r.text()).then(t => {
+      assets.notes[key] = t;
+      loadedCount++; updateBar(loadedCount/totalAssets*100);
+      resolve();
+    }).catch(() => { loadedCount++; updateBar(loadedCount/totalAssets*100); resolve(); });
+  });
+}
+
+async function loadAllAssets() {
+  const imgKeys = [
+    ['bg_pupa',              'img/bg/pupa.jpg'],
+    ['bg_light it up',       'img/bg/light it up.jpg'],
+    ['bg_nacreous snowmelt', 'img/bg/nacreous snowmelt.jpg'],
+    ['bg_Freedom Dive',      'img/bg/Freedom Dive.jpg'],
+    ['bg_entrance',          'img/bg/entrance.jpg'],
+    ['bg_rudebuster',        'img/bg/rudebuster.jpg'],
+    ['NOTE1',      'img/gear1/NOTE1.png'],
+    ['BG',         'img/gear1/BG.png'],
+    ['GEAR1',      'img/gear1/GEAR1.png'],
+    ['GEAR2',      'img/gear1/GEAR2.png'],
+    ['GEAR3',      'img/gear1/GEAR3.png'],
+    ['KEY',        'img/gear1/KEY.png'],
+    ['RATE_LINE',  'img/gear1/RATE_LINE.png'],
+    ['fever_R_1',  'img/gear1/fever_R_1.png'],
+    ['fever_L_1',  'img/gear1/fever_L_1.png'],
+    ['effect1',    'img/gear1/effect1.png'],
+    ['effect2',    'img/gear1/effect2.png'],
+    ['effect3',    'img/gear1/effect3.png'],
+    ['effect4',    'img/gear1/effect4.png'],
+    ['effect5',    'img/gear1/effect5.png'],
+    ['key_anim1',  'img/gear1/key_anim1.png'],
+    ['key_anim2',  'img/gear1/key_anim2.png'],
+    ['key_anim3',  'img/gear1/key_anim3.png'],
+    ['key_anim4',  'img/gear1/key_anim4.png'],
+    ['key_anim5',  'img/gear1/key_anim5.png'],
+    ['key_anim6',  'img/gear1/key_anim6.png'],
+    ['key_anim7',  'img/gear1/key_anim7.png'],
+    ['key_anim8',  'img/gear1/key_anim8.png'],
+    ['key_anim9',  'img/gear1/key_anim9.png'],
+    ['key_anim10', 'img/gear1/key_anim10.png'],
+    ['key_anim11', 'img/gear1/key_anim11.png'],
+  ];
+
+  const songKeys = SONGS.map(s => [s.name, 'song/' + s.name + '.mp3']);
+  const noteKeys = SONGS.map(s => [s.name, 'note/' + s.name + '.txt']);
+  const fontKeys = [
+    ['font1', 'font/1.ttf'],
+    ['font2', 'font/2.ttf'],
+    ['font3', 'font/3.ttf'],
+    ['font_ingame', 'font/ingame_font.ttf'],
+  ];
+
+  totalAssets = imgKeys.length + songKeys.length + noteKeys.length + fontKeys.length;
+
+  updateLoading('이미지 로딩 중...');
+  await Promise.all(imgKeys.map(([k, src]) => loadImage(k, src)));
+
+  updateLoading('폰트 로딩 중...');
+  await Promise.all(fontKeys.map(([k, src]) => loadFont(k, src)));
+
+  updateLoading('노트 데이터 로딩 중...');
+  await Promise.all(noteKeys.map(([k, src]) => loadNote(k, src)));
+
+  updateLoading('음악 로딩 중...');
+  await Promise.all(songKeys.map(([k, src]) => loadAudio(k, src)));
+
+  document.getElementById('loading').style.display = 'none';
+
+  preBlurBgs();
+  startGame();
+}
+
+// --- 배경 블러 오프스크린 캔버스 ---
+let blurredBgs = {};
+function preBlurBgs() {
+  SONGS.forEach(s => {
+    const img = assets.images['bg_' + s.name];
+    if (!img) return;
+    const oc = document.createElement('canvas');
+    oc.width = W; oc.height = H;
+    const octx = oc.getContext('2d');
+    octx.filter = 'blur(8px) brightness(0.3)';
+    octx.drawImage(img, 0, 0, W, H);
+    blurredBgs[s.name] = oc;
+  });
+}
+
+// --- 노트 파싱 ---
+function parseNoteFile(text) {
+  const lines = text.replace(/\r/g, '').split('\n').filter(l => l.trim());
+  let noteTime = 0, songTime = 0, bpm = 0;
+  const dataList = [];
+  const speedList = [];
+
+  lines.forEach((line, i) => {
+    const idx = i + 1;
+    if (idx === 1) noteTime = parseFloat(line.slice(11, 17));
+    if (idx === 2) songTime = parseFloat(line.slice(11, 17));
+    if (idx === 3) bpm = parseFloat(line.slice(11, 17));
+    if (idx > 3) {
+      const cols = line.split('|');
+      const lane = cols[0] ? cols[0].trim().substring(0,4) : '0000';
+      const beat = parseFloat(cols[1]) || 16;
+      const newBpm = parseFloat(cols[2]) || 0;
+      const newSpeed = parseFloat(cols[3]) || 0;
+      dataList.push({ lane, beat, newBpm, newSpeed });
+      speedList.push({ beat, newSpeed });
+    }
+  });
+
+  // 노트 타이밍 계산
+  let notess = noteTime;
+  let speedss = noteTime + 2;
+  let curBpm = bpm;
+  const notes = [[], [], [], []]; // 4레인
+  let noteCount = 0;
+
+  dataList.forEach(d => {
+    if (d.newBpm !== 0) curBpm = d.newBpm;
+    let dt;
+    if (!PERFECT_BPMS.includes(curBpm)) {
+      dt = 240 / curBpm / d.beat;
+    } else {
+      dt = 240 / curBpm / d.beat - (240 / curBpm / d.beat) / 98 * (12 / d.beat);
+    }
+    const t = notess + 2 + 0.005;
+    if (d.lane.includes('1')) { notes[0].push({ y: 0, time: t }); noteCount++; }
+    if (d.lane.includes('2')) { notes[1].push({ y: 0, time: t }); noteCount++; }
+    if (d.lane.includes('3')) { notes[2].push({ y: 0, time: t }); noteCount++; }
+    if (d.lane.includes('4')) { notes[3].push({ y: 0, time: t }); noteCount++; }
+    notess += dt;
+  });
+
+  return { noteTime, songTime, bpm, notes, noteCount, dataList, speedList };
+}
+
+// ==================== GAME STATE ====================
+let gameState = 'lobby'; // lobby | ingame | result
+let songNum = 0;
+let songNumAnim = 0;
+let lobbySelectAnim = 0;
+
+let parsed = null;
+let notes = [[], [], [], []];
+let noteCount = 0;
+let bpm = 202;
+let songStartTime = 0;
+let noteStartTime = 0;
+let dataList = [];
+let speedList = [];
+
+let gst = 0;
+let Time = 0;
+let sst = 0;
+let songPlay = false;
+let songFinished = false;
+let endTimer = 0;
+let currentAudio = null;
+
+let anim = 0, anim2 = 0, anim2p = 0, anim3 = 0;
+let combo = 0;
+let lastCombo = 0;
+let comboEffect = 0, comboEffect2 = 0;
+let comboTime = 0;
+let missAnim = 0;
+let rate = 'READY';
+let score = 0;
+let fever = 1;
+let feverGauge = 0;
+let feverGaugeSmooth = 0;
+let feverAnim = 0, feverAnim2 = 0, feverAnimCool = 0;
+let endTimeV = 0;
+let speedSet = 2;
+let speed = 2.8;
+const speedDisplay = 2.8;
+
+let rateData = [0, 0, 0, 0];
+let keyset = [0, 0, 0, 0];
+let keys = [0, 0, 0, 0];
+let keyPressAnim = [0, 0, 0, 0];
+let effectKey = [5, 5, 5, 5];
+let effectKeySize = [13, 13, 13, 13];
+
+let judgementCount = { PERFECT:0, GREAT:0, GOOD:0, BAD:0, MISS:0 };
+
+let fps = 60;
+let lastTime = performance.now();
+
+// ==================== 판정 ====================
+function rating(n) {
+  const diff = Math.abs(Time - rateData[n]);
+  const win5  = 240 / bpm / 5;
+  const win8  = 240 / bpm / 8;
+  const win12 = 240 / bpm / 12;
+  const win24 = 240 / bpm / 24;
+  const win32 = 240 / bpm / 32;
+
+  if (diff < win5  && diff >= win8)  { judgementCount.MISS++;    doMiss(); rate = 'MISS';    score += (100000/noteCount)*0.2; }
+  if (diff < win8  && diff >= win12) { judgementCount.BAD++;     doMiss(); rate = 'BAD';     score += (100000/noteCount)*0.4; }
+  if (diff < win12 && diff >= win24) { judgementCount.GOOD++;    doHit(n, 33); rate = 'GOOD';    score += (100000/noteCount)*0.7; feverGauge++; }
+  if (diff < win24 && diff >= win32) { judgementCount.GREAT++;   doHit(n, 24); rate = 'GREAT';   score += (100000/noteCount)*0.9; feverGauge++; }
+  if (diff < win32)                  { judgementCount.PERFECT++; doHit(n, 13); rate = 'PERFECT'; score += (100000/noteCount)*1.0; feverGauge++; }
+}
+
+function doMiss() {
+  lastCombo = combo; combo = 0; missAnim = 1;
+  comboEffect = 0.2; comboTime = Time + 1; comboEffect2 = 1.3;
+}
+function doHit(n, sz) {
+  combo += 1 * fever;
+  comboEffect = 0.2; comboTime = Time + 1; comboEffect2 = 1.3;
+  effectKey[n] = 0; effectKeySize[n] = sz;
+}
+
+// ==================== 키 입력 ====================
+const KEY_MAP = { 'd':0, 'f':1, 'j':2, 'k':3 };
+
+document.addEventListener('keydown', e => {
+  if (gameState === 'lobby') {
+    if (e.key === 'ArrowDown') { songNum = Math.min(songNum+1, SONGS.length-1); lobbySelectAnim = -25; }
+    if (e.key === 'ArrowUp')   { songNum = Math.max(songNum-1, 0); lobbySelectAnim = -25; }
+    if (e.key === ' ' || e.key === 'Enter') startIngame();
+    return;
+  }
+  if (gameState === 'result') {
+    if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') resetToLobby();
+    return;
+  }
+  if (gameState === 'ingame') {
+    const idx = KEY_MAP[e.key.toLowerCase()];
+    if (idx !== undefined && keyset[idx] === 0) {
+      keyset[idx] = 1;
+      if (notes[idx].length > 0) {
+        const diff = Math.abs(Time - rateData[idx]);
+        if (diff < 240 / bpm / 5) {
+          rating(idx);
+          notes[idx].shift();
+        }
+      }
+    }
+  }
+});
+
+document.addEventListener('keyup', e => {
+  const idx = KEY_MAP[e.key.toLowerCase()];
+  if (idx !== undefined) { keyset[idx] = 0; keyPressAnim[idx] = 0; }
+});
+
+// ==================== 게임 시작/리셋 ====================
+function startIngame() {
+  const song = SONGS[songNum];
+  if (!assets.notes[song.name]) return;
+
+  parsed = parseNoteFile(assets.notes[song.name]);
+  notes = parsed.notes.map(lane => [...lane]);
+  noteCount = parsed.noteCount;
+  bpm = parsed.bpm;
+  songStartTime = parsed.songTime;
+  noteStartTime = parsed.noteTime;
+
+  combo = 0; lastCombo = 0; score = 0; fever = 1; feverGauge = 0; feverGaugeSmooth = 0;
+  judgementCount = { PERFECT:0, GREAT:0, GOOD:0, BAD:0, MISS:0 };
+  rate = 'READY';
+  anim = 0; anim2 = 0; anim2p = 0; anim3 = 0;
+  comboEffect = 0; comboEffect2 = 0;
+  feverAnim = 0; feverAnim2 = 0;
+  effectKey = [5,5,5,5];
+  keyset = [0,0,0,0]; keys = [0,0,0,0]; keyPressAnim = [0,0,0,0];
+  songPlay = false; songFinished = false;
+  sst = 0; speedSet = 2; speed = 2.8;
+  missAnim = 4;
+  endTimeV = 0;
+
+  gst = performance.now() / 1000;
+  comboTime = noteStartTime + 1;
+
+  if (currentAudio) { currentAudio.pause(); currentAudio.currentTime = 0; }
+
+  gameState = 'ingame';
+}
+
+function resetToLobby() {
+  if (currentAudio) { currentAudio.pause(); currentAudio.currentTime = 0; currentAudio = null; }
+  gameState = 'lobby';
+}
+
+// ==================== 그리기 유틸 ====================
+function drawImageFit(img, x, y, w, h) {
+  if (img) ctx.drawImage(img, x, y, w, h);
+}
+
+function getFont(name, size) {
+  return `${size}px "${name}"`;
+}
+
+// ==================== 로비 렌더 ====================
+function renderLobby(dt) {
+  if (fps === 0) fps = 30;
+  const lerpF = 1 - Math.pow(0.01, dt * (60 / 12));
+  lobbySelectAnim += (0 - lobbySelectAnim) * lerpF;
+  songNumAnim += (songNum - songNumAnim) * (1 - Math.pow(0.01, dt * (60 / 7)));
+
+  const blurred = blurredBgs[SONGS[songNum].name];
+  if (blurred) ctx.drawImage(blurred, 0, 0, W, H);
+  else { ctx.fillStyle = '#111'; ctx.fillRect(0, 0, W, H); }
+
+  const bgImg = assets.images['bg_' + SONGS[songNum].name];
+  if (bgImg) {
+    const bw = W / 2.3, bh = H / 2.3;
+    ctx.drawImage(bgImg, W/4 - bw/2 + lobbySelectAnim*(H/900), H/4 - bh/2, bw, bh);
+  }
+
+  SONGS.forEach((s, i) => {
+    const yPos = H/4 + (H/12)*i - (H/12)*songNumAnim;
+    ctx.save();
+    ctx.globalAlpha = 0.6;
+    ctx.fillStyle = '#000';
+    const barH = H/20;
+    ctx.fillRect(W/2 + W/17, yPos - barH/2, W - (W/2+W/17), barH);
+    ctx.restore();
+
+    ctx.font = getFont('font3', W/70);
+    ctx.fillStyle = (songNum === i) ? '#fff' : '#888';
+    ctx.fillText(s.name, W/2 + W/15, yPos + 6);
+  });
+
+  ctx.font = getFont('font3', W/50);
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.fillText('↑↓ 곡 선택   SPACE / ENTER 시작', W/2 - 180, H - 30);
+}
+
+// ==================== 인게임 렌더 ====================
+function renderIngame(dt) {
+  const lerpFps = dt > 0 ? (60 / (1/dt)) : 1;
+
+  Time = performance.now() / 1000 - gst;
+
+  if (!songPlay && songStartTime < Time) {
+    const audio = assets.songs[SONGS[songNum].name];
+    if (audio) {
+      audio.volume = 0.3;
+      audio.currentTime = 0;
+      audio.play().catch(()=>{});
+      currentAudio = audio;
+    }
+    sst = Time - songStartTime;
+    songPlay = true;
+  }
+
+  // 판정라인 위치
+  for (let i = 0; i < 4; i++) {
+    if (notes[i].length > 0) rateData[i] = notes[i][0].time;
+  }
+
+  // 애니메이션 보간
+  const lerpA = 1 - Math.pow(0.01, dt * 60/17);
+  const lerpC = 1 - Math.pow(0.01, dt * 60/7);
+  const lerpF22 = 1 - Math.pow(0.01, dt * 60/22);
+  const lerpF17 = 1 - Math.pow(0.01, dt * 60/17);
+
+  const totalNotes = notes[0].length + notes[1].length + notes[2].length + notes[3].length;
+
+  if (totalNotes > 0) {
+    anim += (1 - anim) * lerpA;
+    if (Time > comboTime) comboEffect += (0 - comboEffect) * lerpC;
+    else comboEffect += (1 - comboEffect) * lerpC;
+    comboEffect2 += (2 - comboEffect2) * lerpC;
+    endTimeV = Time;
+  }
+  if (Time - endTimeV > 1.5) {
+    anim += (0 - anim) * lerpA;
+    comboEffect += (0 - comboEffect) * lerpC;
+    comboEffect2 += (0 - comboEffect2) * lerpC;
+  }
+  if (anim > 0.97) anim3 += (1 - anim3) * lerpA;
+  else anim3 += (0 - anim3) * lerpA;
+
+  missAnim += (4 - missAnim) * (1 - Math.pow(0.01, dt * 60/14));
+
+  anim2p += 0.03 * (fps > 0 ? 60/fps : 1);
+  if (anim2p > 180) anim2p = 0;
+  anim2 = Math.sin(anim2p * Math.PI/180) / 35;
+  const anim3s = Math.sin(anim2p/2 * Math.PI/180) / 15;
+
+  for (let i = 0; i < 4; i++) {
+    if (keyset[i] === 1) keyPressAnim[i] += (11.9 - keyPressAnim[i]) * (1 - Math.pow(0.01, dt*60/3.5));
+    keys[i] += (keyset[i] - keys[i]) * (1 - Math.pow(0.01, dt*60/3));
+  }
+
+  feverGaugeSmooth += (feverGauge - feverGaugeSmooth) * lerpF17;
+  feverAnim += (feverAnim2 - feverAnim) * lerpF22;
+
+  // 배경
+  const bgImg = assets.images['bg_' + SONGS[songNum].name];
+  const bgScaled = blurredBgs[SONGS[songNum].name];
+  if (bgImg) ctx.drawImage(bgImg, 0, 0, W, H);
+  else { ctx.fillStyle = '#111'; ctx.fillRect(0, 0, W, H); }
+
+  // 피버 데코
+  const fevR = assets.images['fever_R_1'];
+  const fevL = assets.images['fever_L_1'];
+  if (fevR && feverAnim > 0.01) {
+    const fw = W/25, fh = (W/3)*feverAnim;
+    ctx.drawImage(fevR, W/2 + (W/7)*feverAnim - fw/2, H/2 - fh/2, fw, fh);
+  }
+  if (fevL && feverAnim > 0.01) {
+    const fw = W/25, fh = (W/3)*feverAnim;
+    ctx.drawImage(fevL, W/2 - (W/7)*feverAnim - fw/2, H/2 - fh/2, fw, fh);
+  }
+
+  // 기어 배경 영역
+  ctx.fillStyle = '#1e1e1e';
+  ctx.fillRect(W/2 - (W/8.8)*anim, 0, (W/4.4)*anim, H);
+  if (feverAnim > 0.01) {
+    ctx.fillStyle = 'rgba(0,80,0,' + feverAnim + ')';
+    ctx.fillRect(W/2 - (W/8.8)*feverAnim*anim, 0, (W/4.4)*feverAnim*anim, H*feverAnim);
+  }
+
+  // fever_bg
+  const fbg = assets.images['BG'];
+  if (fbg && anim > 0.01) {
+    const fw = (W/4.4)*anim;
+    ctx.drawImage(fbg, W/2 - fw/2, 0, fw, H);
+  }
+
+  // 판정선
+  const rl = assets.images['RATE_LINE'];
+  if (rl && anim > 0.01) {
+    const rlw = (W/4.4)*anim, rlh = W/30;
+    ctx.drawImage(rl, W/2 - rlw/2, (H/24)*17 - rlh/2, rlw, rlh);
+  }
+
+  // 노트 위치 계산 및 그리기
+  const noteImg = assets.images['NOTE1'];
+  const noteW = W/20, noteH = W/65;
+  const judgeY = (H/24)*17;
+  const laneX = [W/2 - W/10, W/2 - W/20, W/2, W/2 + W/20];
+
+  for (let lane = 0; lane < 4; lane++) {
+    const toRemove = [];
+    for (let ni = 0; ni < notes[lane].length; ni++) {
+      const n = notes[lane][ni];
+      n.y = judgeY + (Time + sst - n.time) * 350 * speedDisplay * (H/900);
+      if (n.y + noteH > 0 && n.y - noteH < H) {
+        if (noteImg) ctx.drawImage(noteImg, laneX[lane] - noteW/2, n.y - noteH/2, noteW, noteH);
+        else {
+          ctx.fillStyle = '#00ff46';
+          ctx.fillRect(laneX[lane] - noteW/2, n.y - noteH/2, noteW, noteH);
+        }
+      }
+      if (n.y > H - (H/9)) {
+        toRemove.push(ni);
+        lastCombo = combo; combo = 0; missAnim = 1;
+        comboEffect = 0.2; comboTime = Time+1; comboEffect2 = 1.3;
+        rate = 'MISS'; judgementCount.MISS++;
+      }
+    }
+    for (let r2 = toRemove.length-1; r2 >= 0; r2--) notes[lane].splice(toRemove[r2], 1);
+  }
+
+  // 기어 오버레이
+  const g1 = assets.images['GEAR1'], g2 = assets.images['GEAR2'], g3 = assets.images['GEAR3'];
+  if (g1 && anim > 0.01) { const gw=(W/4.4)*anim; ctx.drawImage(g1, W/2-gw/2, 0, gw, H); }
+  if (g2 && anim > 0.01) { const gw=(W/1600)*315*anim; ctx.drawImage(g2, W/2-gw/2, 0, gw, H); }
+
+  // gear3 + score (회전)
+  if (anim3 > 0.3) {
+    if (g3 && anim3 > 0.01) {
+      const gw = (W/9)*anim3;
+      const gh = W/18;
+      ctx.save();
+      ctx.translate(W/2, (H/48)*38 + (H/400)*(anim2*100));
+      ctx.rotate(anim3s * 50 * Math.PI/180);
+      ctx.drawImage(g3, -gw/2, -gh/2, gw, gh);
+      ctx.restore();
+    }
+    ctx.save();
+    ctx.translate(W/2, (H/96)*75.5 + (H/200)*(anim2*100));
+    ctx.rotate(anim3s * 50 * Math.PI/180);
+    ctx.font = getFont('font3', W/130);
+    ctx.fillStyle = '#00ff46';
+    ctx.textAlign = 'center';
+    ctx.fillText(Math.round(score).toString(), 0, 0);
+    ctx.restore();
+  }
+
+  // 피버 원형 이펙트
+  if (feverAnim2 !== 0 && feverAnim > 0.01 && (1 - feverAnim) > 0.01) {
+    const lw = Math.max(1, (W/100) - (W/100)*feverAnim);
+    ctx.strokeStyle = '#00ff46';
+    ctx.lineWidth = lw;
+    ctx.beginPath(); ctx.arc(W/2, H/2, (W/2)*feverAnim, 0, Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(W/2, H/2, W*feverAnim, 0, Math.PI*2); ctx.stroke();
+  }
+
+  // 키 이미지
+  const keyImgs = [
+    assets.images['KEY'],
+    ...Array.from({length:11}, (_,i) => assets.images['key_anim'+(i+1)])
+  ];
+  const kw = W/18, kh = W/18.2;
+  const keyXs = [W/2-W/15.5, W/2-W/29, W/2+W/29, W/2+W/15.5];
+  const keyYBase = [(H/96)*83, (H/48)*44, (H/48)*44, (H/96)*83];
+
+  for (let i = 0; i < 4; i++) {
+    const ki = Math.min(Math.floor(keyPressAnim[i]), 11);
+    const img = keyImgs[ki] || keyImgs[0];
+    const x = keyXs[i] - kw/2;
+    const y = keyYBase[i]*(2-anim) + (H/48)*(keys[i]/2) - kh/2;
+    if (img) ctx.drawImage(img, x, y, kw, kh);
+  }
+
+  // miss 텍스트
+  if (missAnim < 3.9 && lastCombo > 0) {
+    const alpha = Math.max(0, 1 - (1/4)*missAnim);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = getFont('font3', W/80 * missAnim);
+    ctx.fillStyle = '#ff0000';
+    ctx.textAlign = 'center';
+    ctx.fillText(lastCombo.toString(), W/2, (H/48)*16);
+    ctx.restore();
+  }
+
+  // 이펙트
+  const efs = [assets.images['effect1'],assets.images['effect2'],assets.images['effect3'],assets.images['effect4'],assets.images['effect5']];
+  const efXs = [W/2-(W/33)*2.5, W/2-W/33, W/2+W/33, W/2+(W/33)*2.5];
+  for (let i = 0; i < 4; i++) {
+    effectKey[i] = Math.min(effectKey[i] + 0.5, 5);
+    if (effectKey[i] < 5) {
+      const ef = efs[Math.floor(effectKey[i])];
+      if (ef) {
+        const ew = W/15;
+        ctx.drawImage(ef, efXs[i]-ew/2, judgeY-ew/2, ew, ew);
+      }
+    }
+  }
+
+  // 피버 게이지
+  ctx.fillStyle = '#00ff46';
+  ctx.fillRect(W/2 - W/29*anim, H/3.4, W/800*anim, H/300);
+  ctx.fillRect(W/2 + W/29*anim - W/800*anim, H/3.4, W/800*anim, H/300);
+  if (feverGaugeSmooth > 0) {
+    ctx.fillRect(W/2 - W/30, H/3.4, (W/15)*(feverGaugeSmooth/128)*anim, H/300);
+  }
+
+  // 피버 활성화 체크
+  if (feverGauge >= 128) { fever = Math.min(fever+1, 5); feverGauge = 0; feverAnimCool = Time; feverAnim2 = 1; }
+  if (Time - feverAnimCool > 2) feverAnim2 = 0;
+
+  // 콤보 텍스트
+  if (combo > 0 || comboEffect > 0.05) {
+    const cSize = Math.max(4, (W/80)*comboEffect2);
+    ctx.font = getFont('font3', cSize);
+    ctx.fillStyle = '#00ff46';
+    ctx.textAlign = 'center';
+    ctx.fillText(combo.toString(), W/2, (H/48)*16);
+  }
+
+  // 피버 배율
+  if (fever > 1) {
+    ctx.font = getFont('font3', Math.max(4, (W/240)*comboEffect2));
+    ctx.fillStyle = '#00ff46';
+    ctx.textAlign = 'center';
+    ctx.fillText('x'+fever, W/2, (H/48)*18);
+  }
+
+  // 판정 텍스트
+  if (comboEffect > 0.05) {
+    const rSize = Math.max(4, (W/110)*rate.length*comboEffect2);
+    const rH = Math.max(4, W/90*comboEffect*comboEffect2);
+    ctx.font = getFont('font2', Math.max(6, W/23));
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.scale(comboEffect2*0.5, comboEffect*comboEffect2*0.5);
+    const cx = (W/2) / (comboEffect2*0.5);
+    const cy = (H/48)*30 / (comboEffect*comboEffect2*0.5);
+    const rateColors = { PERFECT:'#ffffaa', GREAT:'#aaffaa', GOOD:'#aaeeff', BAD:'#ffaaaa', MISS:'#ff4444', READY:'#ffffff' };
+    ctx.fillStyle = rateColors[rate] || '#fff';
+    ctx.fillText(rate, cx, cy);
+    ctx.restore();
+  }
+
+  // 노래 끝 체크
+  if (notes[0].length===0 && notes[1].length===0 && notes[2].length===0 && notes[3].length===0 && !songFinished) {
+    if (currentAudio) { setTimeout(()=>{ if(currentAudio) currentAudio.pause(); }, 500); }
+    songFinished = true;
+    endTimer = Time;
+  }
+  if (songFinished && Time - endTimer >= 2) {
+    gameState = 'result';
+  }
+}
+
+// ==================== 결과 화면 ====================
+function renderResult() {
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#fff';
+  ctx.font = getFont('font3', W/20);
+  ctx.fillText('RESULT', W/2, H/8);
+
+  ctx.fillStyle = '#00ff46';
+  ctx.font = getFont('font3', W/20);
+  ctx.fillText('Score: ' + Math.round(score), W/2, H/4);
+
+  const small = W/50;
+  const y0 = H/2.5;
+  const sp = 45;
+  const items = [
+    ['PERFECT', judgementCount.PERFECT, '#ffff44'],
+    ['GREAT',   judgementCount.GREAT,   '#44ff44'],
+    ['GOOD',    judgementCount.GOOD,    '#44ccff'],
+    ['BAD',     judgementCount.BAD,     '#ff7777'],
+    ['MISS',    judgementCount.MISS,    '#ff2222'],
+  ];
+  items.forEach(([label, val, color], i) => {
+    ctx.font = getFont('font3', small);
+    ctx.fillStyle = color;
+    ctx.fillText(label + ': ' + val, W/2, y0 + sp*i);
+  });
+
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.font = getFont('font3', W/60);
+  ctx.fillText('ESC / ENTER / SPACE 로 돌아가기', W/2, H - 40);
+}
+
+// ==================== 메인 루프 ====================
+function gameLoop(now) {
+  const dt = Math.min((now - lastTime) / 1000, 0.05);
+  lastTime = now;
+  fps = dt > 0 ? 1/dt : 60;
+
+  ctx.clearRect(0, 0, W, H);
+
+  if (gameState === 'lobby')  renderLobby(dt);
+  if (gameState === 'ingame') renderIngame(dt);
+  if (gameState === 'result') renderResult();
+
+  requestAnimationFrame(gameLoop);
+}
+
+loadAllAssets().then(() => {
+  lastTime = performance.now();
+  requestAnimationFrame(gameLoop);
+});
+</script>
+</body>
+</html>
