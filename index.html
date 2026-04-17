@@ -477,7 +477,6 @@ function gameLoop(timestamp) {
             anim += (1 - anim) * Math.min(dRate * 0.28, 1);
             if(Time > comboTime) comboEffect += (0 - comboEffect) * Math.min(dRate * 0.11, 1);
             if(Time < comboTime) comboEffect += (1 - comboEffect) * Math.min(dRate * 0.11, 1);
-            let end_time = Time; // 원본 구조
             comboEffect2 += (2 - comboEffect2) * Math.min(dRate * 0.11, 1);
         } else {
             anim += (0 - anim) * Math.min(dRate * 0.28, 1);
@@ -531,11 +530,21 @@ function gameLoop(timestamp) {
         if(images.gearLine && anim > 0) ctx.drawImage(images.gearLine, w/2 - ((w/4.4)*anim)/2, 0, (w/4.4)*anim, h);
         if(images.gearUnder && anim > 0) ctx.drawImage(images.gearUnder, w/2 - ((w/1600)*315*anim)/2, 0, (w/1600)*315*anim, h);
 
-        // --- 노트 렌더링 로직 ---
-        const drawNote = (tArr, xPos) => {
+        // --- 수정된 부분: 등간격 설정 및 양 끝 라인(1, 4)의 Y축 높이 조정 ---
+        let x1 = w/2 - (w/12);  // 라인 1 (d)
+        let x2 = w/2 - (w/36);  // 라인 2 (f)
+        let x3 = w/2 + (w/36);  // 라인 3 (j)
+        let x4 = w/2 + (w/12);  // 라인 4 (k)
+        
+        let yOffOuter = h/25; // 1번, 4번 키가 조금 더 위로 가도록 오프셋 값 부여
+        let yOffInner = 0;
+
+        // --- 노트 렌더링 로직 (yOffset 파라미터 추가) ---
+        const drawNote = (tArr, xPos, yOffset = 0) => {
             for (let i = tArr.length - 1; i >= 0; i--) {
                 let tileData = tArr[i];
-                tileData[0] = rateLineY + (Time + sst - tileData[1]) * 350 * speed * (h/900);
+                let targetY = rateLineY - yOffset; // yOffset 적용
+                tileData[0] = targetY + (Time + sst - tileData[1]) * 350 * speed * (h/900);
                 
                 let noteImg = images.note;
                 let nWidth = w/20;
@@ -567,11 +576,11 @@ function gameLoop(timestamp) {
             }
         };
 
-        // 노트 호출 (모든 X 좌표 비율 통일)
-        drawNote(t1, w/2 - (w/15.5));
-        drawNote(t2, w/2 - (w/29));
-        drawNote(t3, w/2 + (w/29));
-        drawNote(t4, w/2 + (w/15.5));
+        // 노트 호출 시 각각의 오프셋 전달
+        drawNote(t1, x1, yOffOuter);
+        drawNote(t2, x2, yOffInner);
+        drawNote(t3, x3, yOffInner);
+        drawNote(t4, x4, yOffOuter);
 
         // 스코어 텍스트 & 기어 데코 회전 효과
         if((anim3 > 0.3 && anim3 < 0.4) || (anim3 > 0.5 && anim3 < 0.6) || (anim3 > 0.6 && anim3 < 0.7) || (anim3 > 0.8 && anim3 < 0.85) || (anim3 > 0.9 && anim3 < 1.1)) {
@@ -606,36 +615,37 @@ function gameLoop(timestamp) {
             ctx.stroke();
         }
 
-        // 키 이미지 렌더링
+        // --- 키 이미지 렌더링 (yOffset 파라미터 추가) ---
         let pKeyW = w/18; let pKeyH = w/18.2;
         
-        const drawKey = (idx, xPos, keyArrIdx, yBase) => {
+        const drawKey = (idx, xPos, keyArrIdx, yBase, yOffset = 0) => {
             let keyImg = images.keys[Math.floor(keyPressAnim[keyArrIdx])] || images.pKey;
             if(keyImg) {
-                let yPos = (h/yBase)*(44*(2-anim)) + (h/48)*(keys[keyArrIdx]/2) - pKeyH/2;
+                // yOffset을 빼서 키 높이를 위로 올립니다
+                let yPos = (h/yBase)*(44*(2-anim)) + (h/48)*(keys[keyArrIdx]/2) - pKeyH/2 - yOffset;
                 ctx.drawImage(keyImg, xPos - pKeyW/2, yPos, pKeyW, pKeyH);
             }
         };
 
-        // 키 캡 호출 (노트의 X 좌표 배열과 완벽하게 동일)
-        drawKey(0, w/2 - (w/15.5), 0, 48); // key 1 (d)
-        drawKey(1, w/2 - (w/29), 1, 48);   // key 2 (f)
-        drawKey(2, w/2 + (w/29), 2, 48);   // key 3 (j)
-        drawKey(3, w/2 + (w/15.5), 3, 48); // key 4 (k) 
+        // 키 캡 호출
+        drawKey(0, x1, 0, 48, yOffOuter); // key 1 (d)
+        drawKey(1, x2, 1, 48, yOffInner); // key 2 (f)
+        drawKey(2, x3, 2, 48, yOffInner); // key 3 (j)
+        drawKey(3, x4, 3, 48, yOffOuter); // key 4 (k) 
 
-        // 타격 이펙트
+        // --- 타격 이펙트 렌더링 (yOffset 파라미터 추가) ---
         let effW = w/15; let effH = w/15;
-        const drawEffect = (idx, xPos) => {
+        const drawEffect = (idx, xPos, yOffset = 0) => {
             if(effectKey[idx] < 5 && images.effects[Math.floor(effectKey[idx])]) {
-                ctx.drawImage(images.effects[Math.floor(effectKey[idx])], xPos - effW/2, rateLineY - effH/2, effW, effH);
+                ctx.drawImage(images.effects[Math.floor(effectKey[idx])], xPos - effW/2, rateLineY - yOffset - effH/2, effW, effH);
             }
         };
         
-        // 타격 이펙트 호출 (노트 및 키의 X 좌표와 완벽하게 동일)
-        drawEffect(0, w/2 - (w/15.5));
-        drawEffect(1, w/2 - (w/29));
-        drawEffect(2, w/2 + (w/29));
-        drawEffect(3, w/2 + (w/15.5));
+        // 타격 이펙트 호출
+        drawEffect(0, x1, yOffOuter);
+        drawEffect(1, x2, yOffInner);
+        drawEffect(2, x3, yOffInner);
+        drawEffect(3, x4, yOffOuter);
 
         // 피버 게이지 발동 조건
         if(feverGauge >= 128) {
